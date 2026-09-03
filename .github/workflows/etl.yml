@@ -1,0 +1,69 @@
+name: ETL
+
+on:
+  schedule:
+    - cron: "0 4 * * 0"        # Sundays 04:00 UTC (23:00 Sat in Colombia)
+  workflow_dispatch:            # manual trigger, always keep this
+
+permissions:
+  contents: write               # needed to push the data branch
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45         # ~6 min for 8 groups; generous headroom
+
+    container:
+      image: ghcr.io/hufrinconlo/margaret-etl:latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run ETL
+        run: Rscript etl/run_etl.R
+        env:
+          OUT_DIR: output
+          HIDDEN_THRESHOLD: "15"   # tune once you know your real baseline
+
+      - name: Show health
+        if: always()
+        run: cat output/run_health.csv || echo "no health file - ETL failed early"
+
+      # Artifact on every run, including failures. Useful for debugging and
+      # independent of whether the publish step below succeeds.
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: margaret-${{ github.run_number }}
+          path: output/
+          retention-days: 30
+
+      # Publish to an orphan 'data' branch holding only the artifact.
+      # Keeps the main branch history clean of binary churn.
+      - name: Publish to data branch
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          mkdir -p /tmp/publish
+          cp output/margaret.rds output/margaret.xlsx output/run_health.csv /tmp/publish/
+
+          git fetch origin data || true
+          if git rev-parse --verify origin/data >/dev/null 2>&1; then
+            git checkout -B data origin/data
+          else
+            git checkout --orphan data
+            git rm -rf . >/dev/null 2>&1 || true
+          fi
+
+          cp /tmp/publish/* .
+          echo "Updated $(date -u +'%Y-%m-%d %H:%M UTC') by run ${{ github.run_number }}" > README.md
+
+          git add margaret.rds margaret.xlsx run_health.csv README.md
+          git commit -m "data: refresh $(date -u +'%Y-%m-%d')" || {
+            echo "No changes to publish"; exit 0;
+          }
+          git push origin data
