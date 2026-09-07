@@ -14,7 +14,7 @@ jobs:
     timeout-minutes: 45         # ~6 min for 8 groups; generous headroom
 
     container:
-      image: ghcr.io/hufrinconlo/margaret-etl:latest
+      image: ghcr.io/YOUR_USERNAME/margaret-etl:latest
 
     steps:
       - name: Checkout
