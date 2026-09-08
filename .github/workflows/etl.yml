@@ -40,6 +40,12 @@ jobs:
           path: output/
           retention-days: 30
 
+      - name: Install git
+        run: apt-get update && apt-get install -y --no-install-recommends git
+
+      - name: Publish to data branch
+        run: |
+
       # Publish to an orphan 'data' branch holding only the artifact.
       # Keeps the main branch history clean of binary churn.
       - name: Publish to data branch
