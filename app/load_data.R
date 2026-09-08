@@ -11,11 +11,8 @@ DATA_BASE <- "https://raw.githubusercontent.com/Hufrinconlo/margareth/data/"
 
 # Download once per session into a temp file, then read.
 fetch_artifact <- function(file, reader) {
-  dest <- file.path(tempdir(), file)
-  if (!file.exists(dest)) {
-    utils::download.file(paste0(DATA_BASE, file), dest,
-                         mode = "wb", quiet = TRUE)
-  }
+  dest <- tempfile(fileext = paste0("_", file))
+  utils::download.file(paste0(DATA_BASE, file), dest, mode = "wb", quiet = TRUE)
   reader(dest)
 }
 
