@@ -45,11 +45,6 @@ jobs:
           path: output/
           retention-days: 30
 
-      - name: Publish to data branch
-        run: |
-          ls -la .git || echo "NO .git DIRECTORY"
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
       # Publish to an orphan 'data' branch holding only the artifact.
       # Keeps the main branch history clean of binary churn.
       - name: Publish to data branch

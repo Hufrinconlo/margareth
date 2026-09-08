@@ -65,6 +65,15 @@ old <- setwd(OUT_DIR); on.exit(setwd(old), add = TRUE)   # getting_data() writes
 
 t0  <- Sys.time()
 res <- margaret::getting_data(as.data.frame(groups))
+
+# Strip direct identifiers before publishing. The data branch is public,
+# and a consolidated dataset is a different thing from 8 separate pages.
+res[[1]] <- res[[1]] |> dplyr::select(-dplyr::any_of(c("email", "url.y")))
+
+# getting_data() already wrote margaret.xlsx with the email column in it,
+# so overwrite it with the cleaned version.
+writexl::write_xlsx(res, file.path(OUT_DIR, "margaret.xlsx"))
+
 elapsed <- round(as.numeric(difftime(Sys.time(), t0, units = "mins")), 1)
 setwd(old)
 
