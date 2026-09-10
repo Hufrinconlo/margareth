@@ -68,7 +68,9 @@ res <- margaret::getting_data(as.data.frame(groups))
 
 # Strip direct identifiers before publishing. The data branch is public,
 # and a consolidated dataset is a different thing from 8 separate pages.
-res[[1]] <- res[[1]] |> dplyr::select(-dplyr::any_of(c("email", "url.y")))
+# The gate below checks this same list, so keep it as the one definition.
+PII_COLS <- c("email", "url.y")
+res[[1]] <- res[[1]] |> dplyr::select(-dplyr::any_of(PII_COLS))
 
 # getting_data() already wrote margaret.xlsx with the email column in it,
 # so overwrite it with the cleaned version.
@@ -113,19 +115,36 @@ if (rate > THRESHOLD) {
 # The .xlsx is not: getting_data() writes its own copy into getwd() and we
 # overwrite that above, so it has to be read back from disk. On 2026-09-08 the
 # in-memory strip was already correct while the published xlsx still had emails.
-has_email <- function(nms) any(grepl("email", nms, ignore.case = TRUE))
+#
+# Cell values are checked as well as column names: an upstream rename, or an
+# address sitting in a free-text field, would otherwise sail straight through.
+EMAIL_RE <- "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"
+
+pii_reasons <- function(df) {
+  nms <- names(df)
+  bad <- nms[tolower(nms) %in% tolower(PII_COLS) |
+               grepl("e-?_?mail|correo", nms, ignore.case = TRUE)]
+  vals <- unlist(lapply(df, function(x) if (is.character(x)) x else character()),
+                 use.names = FALSE)
+  c(if (length(bad)) paste0("column ", paste(bad, collapse = "/")),
+    if (any(grepl(EMAIL_RE, vals))) "address in cell values")
+}
 
 xlsx_path <- file.path(OUT_DIR, "margaret.xlsx")
 leaky <- c(
-  if (any(vapply(res, function(d) is.data.frame(d) && has_email(names(d)),
-                 logical(1)))) "margaret.rds",
-  Filter(function(s) has_email(names(readxl::read_excel(xlsx_path, sheet = s,
-                                                        n_max = 0))),
-         readxl::excel_sheets(xlsx_path))
+  unlist(lapply(which(vapply(res, is.data.frame, logical(1))), function(i) {
+    r <- pii_reasons(res[[i]])
+    if (length(r)) paste0("margaret.rds [[", i, "]]: ", paste(r, collapse = "; "))
+  })),
+  unlist(lapply(readxl::excel_sheets(xlsx_path), function(s) {
+    r <- pii_reasons(readxl::read_excel(xlsx_path, sheet = s, col_types = "text",
+                                        .name_repair = "minimal"))
+    if (length(r)) paste0("margaret.xlsx [", s, "]: ", paste(r, collapse = "; "))
+  }))
 )
 if (length(leaky)) {
-  stop("email column still present in: ", paste(leaky, collapse = ", "),
-       " -- refusing to publish to a public branch (Ley 1581).")
+  stop("refusing to publish to a public branch (Ley 1581) -- PII found:\n  ",
+       paste(leaky, collapse = "\n  "))
 }
 
 saveRDS(res, file.path(OUT_DIR, "margaret.rds"))
