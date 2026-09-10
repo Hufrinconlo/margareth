@@ -37,13 +37,21 @@ jobs:
 
       # Artifact on every run, including failures. Useful for debugging and
       # independent of whether the publish step below succeeds.
+      #
+      # Never upload output/ wholesale. This runs on failure too, so it would
+      # also fire when the PII gate aborts the run -- publishing to a public
+      # repo's artifacts exactly the file the gate just refused to publish.
+      # margaret.rds is only written after the gate passes, and the xlsx is
+      # derivable from it, so neither needs to ship here.
       - name: Upload run artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: margaret-${{ github.run_number }}
-          path: output/
-          retention-days: 30
+          path: |
+            output/run_health.csv
+            output/margaret.rds
+          retention-days: 7
 
       # Publish to an orphan 'data' branch holding only the artifact.
       # Keeps the main branch history clean of binary churn.
