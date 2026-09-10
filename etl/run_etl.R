@@ -72,7 +72,7 @@ res[[1]] <- res[[1]] |> dplyr::select(-dplyr::any_of(c("email", "url.y")))
 
 # getting_data() already wrote margaret.xlsx with the email column in it,
 # so overwrite it with the cleaned version.
-writexl::write_xlsx(res, file.path(OUT_DIR, "margaret.xlsx"))
+writexl::write_xlsx(res, "margaret.xlsx")
 
 elapsed <- round(as.numeric(difftime(Sys.time(), t0, units = "mins")), 1)
 setwd(old)
@@ -106,6 +106,26 @@ THRESHOLD <- as.numeric(Sys.getenv("HIDDEN_THRESHOLD", "35"))
 if (rate > THRESHOLD) {
   stop("CvLAC oculto rate ", rate, "% exceeds ", THRESHOLD,
        "% -- likely network failure, not real data. Refusing to publish.")
+}
+
+# --- PII gate --------------------------------------------------------------
+# The .rds is written from `res` below, so checking it in memory is equivalent.
+# The .xlsx is not: getting_data() writes its own copy into getwd() and we
+# overwrite that above, so it has to be read back from disk. On 2026-09-08 the
+# in-memory strip was already correct while the published xlsx still had emails.
+has_email <- function(nms) any(grepl("email", nms, ignore.case = TRUE))
+
+xlsx_path <- file.path(OUT_DIR, "margaret.xlsx")
+leaky <- c(
+  if (any(vapply(res, function(d) is.data.frame(d) && has_email(names(d)),
+                 logical(1)))) "margaret.rds",
+  Filter(function(s) has_email(names(readxl::read_excel(xlsx_path, sheet = s,
+                                                        n_max = 0))),
+         readxl::excel_sheets(xlsx_path))
+)
+if (length(leaky)) {
+  stop("email column still present in: ", paste(leaky, collapse = ", "),
+       " -- refusing to publish to a public branch (Ley 1581).")
 }
 
 saveRDS(res, file.path(OUT_DIR, "margaret.rds"))
