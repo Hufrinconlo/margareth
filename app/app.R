@@ -22,12 +22,24 @@ source("load_data.R")
 
 count_sheet <- function(prod, name, yr) {
   s <- prod[[name]]
-  if (is.null(s) || !is.data.frame(s) || nrow(s) == 0) return(0L)
+  # An absent sheet is not the same claim as a count of zero: margaret has no
+  # softwares sheet at all, and "0 Software" reads as "produced none".
+  if (is.null(s) || !is.data.frame(s) || nrow(s) == 0)
+    return(list(value = "n/d", note = "sin datos"))
   if ("ano" %in% names(s)) {
     a <- suppressWarnings(as.numeric(s$ano))
-    return(sum(!is.na(a) & a >= yr[1] & a <= yr[2]))
+    return(list(value = sum(!is.na(a) & a >= yr[1] & a <= yr[2]), note = NULL))
   }
-  nrow(s)
+  # Only articulos carries `ano`. The rest cannot honour the year slider, so
+  # say so on the box rather than showing an all-time total beside filtered ones.
+  list(value = nrow(s), note = "todos los años")
+}
+
+sheet_box <- function(prod, name, label, yr, icon_name) {
+  r <- count_sheet(prod, name, yr)
+  valueBox(r$value,
+           if (is.null(r$note)) label else paste0(label, " (", r$note, ")"),
+           icon = icon(icon_name), color = "blue")
 }
 
 pie_of <- function(df, col, title) {
@@ -161,21 +173,16 @@ server <- function(input, output, session) {
     valueBox(nrow(art_f()), "Total Artículos",
              icon = icon("file"), color = "blue"))
   output$vb_cap <- renderValueBox(
-    valueBox(count_sheet(dat()$prod, "capitulos", yr()), "Total Capítulos",
-             icon = icon("book"), color = "blue"))
+    sheet_box(dat()$prod, "capitulos", "Total Capítulos", yr(), "book"))
   output$vb_lib <- renderValueBox(
-    valueBox(count_sheet(dat()$prod, "libros", yr()), "Total Libros",
-             icon = icon("book-open"), color = "blue"))
+    sheet_box(dat()$prod, "libros", "Total Libros", yr(), "book-open"))
   output$vb_soft <- renderValueBox(
-    valueBox(count_sheet(dat()$prod, "softwares", yr()), "Total Software",
-             icon = icon("code"), color = "blue"))
+    sheet_box(dat()$prod, "softwares", "Total Software", yr(), "code"))
   output$vb_proy <- renderValueBox(
-    valueBox(count_sheet(dat()$prod, "proyectos", yr()), "Total Proyectos",
-             icon = icon("lightbulb"), color = "blue"))
+    sheet_box(dat()$prod, "proyectos", "Total Proyectos", yr(), "lightbulb"))
   output$vb_trab <- renderValueBox(
-    valueBox(count_sheet(dat()$prod, "trabajos_dirigidos", yr()),
-             "Total Trabajos Dirigidos",
-             icon = icon("chalkboard-teacher"), color = "blue"))
+    sheet_box(dat()$prod, "trabajos_dirigidos", "Total Trabajos Dirigidos",
+              yr(), "chalkboard-teacher"))
 
   # --- charts ---
   output$p_produccion <- renderPlotly({

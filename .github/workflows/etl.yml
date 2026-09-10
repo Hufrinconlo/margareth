@@ -14,7 +14,11 @@ jobs:
     timeout-minutes: 45         # ~6 min for 8 groups; generous headroom
 
     container:
-      image: ghcr.io/hufrinconlo/margaret-etl:latest
+      # Pinned by digest, for the same reason the Dockerfile pins its base and
+      # CRAN snapshot: :latest would let a rebuild silently change what the
+      # Sunday cron runs. Repin deliberately after pushing a new image --
+      #   docker manifest inspect --verbose ghcr.io/hufrinconlo/margaret-etl:latest
+      image: ghcr.io/hufrinconlo/margaret-etl@sha256:0444d4e8a43c755549105c8be3b83070833ac73ef6a081021fc51259c11204bc
 
     steps:
       - name: Install git

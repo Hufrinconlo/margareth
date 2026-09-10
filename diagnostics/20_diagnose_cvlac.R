@@ -1,10 +1,11 @@
 # Confirm the patch fixes CvLAC parsing before rerunning the full ETL.
+# Run from the repo root: Rscript diagnostics/20_diagnose_cvlac.R
 
 suppressPackageStartupMessages({
   library(rvest); library(httr); library(purrr); library(tibble); library(margaret)
 })
 
-source("patch_margaret.R")
+source("etl/patch_margaret.R")
 
 groups <- readr::read_csv("groups.csv", show_col_types = FALSE)
 

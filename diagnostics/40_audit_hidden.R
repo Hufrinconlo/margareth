@@ -4,6 +4,8 @@
 # safely() turns every failure into the same label. This re-runs the parse
 # across all researchers, keeps the error messages, and probes the failing
 # pages to tell "restricted by the owner" apart from "we can't parse it".
+#
+# Run from the repo root: Rscript diagnostics/40_audit_hidden.R
 # ---------------------------------------------------------------------------
 
 suppressPackageStartupMessages({
@@ -11,7 +13,10 @@ suppressPackageStartupMessages({
   library(stringr); library(tibble); library(margaret)
 })
 
-source("patch_margaret.R"); patch_add_rownames()
+# patch_all(), not just the add_rownames half: the parser patch is what turns a
+# blank academic section into "Sin información". Auditing without it counts
+# those as failures and reports a hidden rate the ETL never actually produces.
+source("etl/patch_margaret.R"); patch_all()
 
 groups <- readr::read_csv("groups.csv", show_col_types = FALSE)
 
