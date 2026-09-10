@@ -1,0 +1,10 @@
+name: margaret
+title:
+username: hugorl
+account: hugorl
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 17878520
+bundleId: 12536789
+url: https://hugorl.shinyapps.io/margaret/
+version: 1
