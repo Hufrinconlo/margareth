@@ -10,9 +10,24 @@ library(dplyr)
 DATA_BASE <- "https://raw.githubusercontent.com/Hufrinconlo/margareth/data/"
 
 # Download once per session into a temp file, then read.
+#
+# The artifact is legitimately absent between a reset of the 'data' branch and
+# the next green ETL, and download.file() signals that by throwing. Raise a
+# message the dashboard can show instead, so a missing file degrades to a
+# notice rather than taking every panel down with a raw R error.
 fetch_artifact <- function(file, reader) {
   dest <- tempfile(fileext = paste0("_", file))
-  utils::download.file(paste0(DATA_BASE, file), dest, mode = "wb", quiet = TRUE)
+  ok <- tryCatch({
+    utils::download.file(paste0(DATA_BASE, file), dest, mode = "wb", quiet = TRUE)
+    TRUE
+  }, error = function(e) FALSE, warning = function(w) FALSE)
+
+  if (!ok || !file.exists(dest) || file.size(dest) == 0) {
+    stop("No hay datos publicados todavía (no se pudo descargar ", file,
+         "). El ETL semanal publica el artefacto en la rama 'data'; ",
+         "si acaba de reiniciarse, espere a la próxima ejecución.",
+         call. = FALSE)
+  }
   reader(dest)
 }
 

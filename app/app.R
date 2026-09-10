@@ -122,7 +122,12 @@ server <- function(input, output, session) {
   # Runs once per session, cached for the rest of it. Everything downstream
   # calls dat() instead of a global.
   dat <- reactive({
-    d <- load_margaret()
+    loaded <- tryCatch(list(d = load_margaret(), health = load_health()),
+                       error = function(e) e)
+    # Surfaces as a notice in every panel rather than an unhandled error page.
+    if (inherits(loaded, "error")) validate(need(FALSE, conditionMessage(loaded)))
+
+    d <- loaded$d
     prod <- lapply(d$products, function(x) if (is.data.frame(x)) ungroup(x) else x)
 
     art <- prod$articulos |>
@@ -135,7 +140,7 @@ server <- function(input, output, session) {
       inv    = ungroup(d$researchers),
       prod   = prod,
       art    = art,
-      health = load_health()
+      health = loaded$health
     )
   })
 
