@@ -42,6 +42,35 @@ sheet_box <- function(prod, name, label, yr, icon_name) {
            icon = icon(icon_name), color = "blue")
 }
 
+pretty_names <- function(x) {
+  sub("^(.)", "\\U\\1", gsub("_", " ", x), perl = TRUE)
+}
+
+# Rows open the underlying GrupLAC/CvLAC page. The url rides along as the last
+# column and is hidden, so the click handler can read it out of the row data.
+# It is excluded from DT's HTML escaping: an escaped `&` would corrupt any
+# query string before window.open ever saw it.
+link_table <- function(df, cols, url_col, page_len) {
+  d <- df |> select(any_of(c(cols, url_col)))
+  uidx <- ncol(d) - 1L                       # 0-based, for the JS data array
+
+  datatable(
+    d,
+    rownames = FALSE,
+    colnames = pretty_names(names(d)),
+    escape   = -(uidx + 1L),
+    options  = list(
+      pageLength = page_len, scrollX = TRUE,
+      columnDefs = list(list(visible = FALSE, targets = uidx))
+    ),
+    callback = JS(sprintf(
+      "table.on('click', 'tbody tr', function() {
+         var u = table.row(this).data()[%d];
+         if (u) window.open(u, '_blank', 'noopener,noreferrer');
+       });", uidx))
+  )
+}
+
 pie_of <- function(df, col, title) {
   tab <- df |> count(.data[[col]], name = "n") |> arrange(desc(n))
   plot_ly(tab, labels = ~.data[[col]], values = ~n, type = "pie",
@@ -60,6 +89,7 @@ ui <- function(req) {
     dashboardSidebar(
       uiOutput("year_ui"),          # built from data, so rendered server-side
       sidebarMenu(
+        id = "tabs",                  # needed by updateTabItems()
         menuItem("Gráficas Generales", tabName = "general", icon = icon("chart-line")),
         menuItem("Grupos",             tabName = "grupos",  icon = icon("layer-group")),
         menuItem("Investigadores",     tabName = "inv",     icon = icon("users")),
@@ -70,11 +100,20 @@ ui <- function(req) {
     ),
 
     dashboardBody(
+      tags$head(tags$style(HTML("
+        #t_grupos tbody tr, #t_inv tbody tr { cursor: pointer; }
+        .vb-link { cursor: pointer; }
+        .vb-link:hover .small-box { filter: brightness(1.07); }
+      "))),
       tabItems(
         tabItem("general",
           fluidRow(
-            valueBoxOutput("vb_grupos", width = 6),
-            valueBoxOutput("vb_inv",    width = 6)
+            tags$div(class = "col-sm-6 vb-link",
+                     onclick = "Shiny.setInputValue('go_tab', 'grupos', {priority:'event'});",
+                     valueBoxOutput("vb_grupos", width = 12)),
+            tags$div(class = "col-sm-6 vb-link",
+                     onclick = "Shiny.setInputValue('go_tab', 'inv', {priority:'event'});",
+                     valueBoxOutput("vb_inv", width = 12))
           ),
           fluidRow(
             valueBoxOutput("vb_art", width = 4),
@@ -143,6 +182,9 @@ server <- function(input, output, session) {
       health = loaded$health
     )
   })
+
+  # The two headline boxes double as navigation into their detail tabs.
+  observeEvent(input$go_tab, updateTabItems(session, "tabs", input$go_tab))
 
   # Slider depends on the data, so it's rendered rather than declared in UI.
   output$year_ui <- renderUI({
@@ -235,11 +277,10 @@ server <- function(input, output, session) {
   })
 
   output$t_grupos <- renderDT({
-    dat()$grupos |>
-      select(any_of(c("grupo", "clasificacion", "lider", "ciudad",
-                      "fecha_creacion", "area_conocimiento_1", "sum_papers"))) |>
-      datatable(options = list(pageLength = 10, scrollX = TRUE),
-                rownames = FALSE)
+    link_table(dat()$grupos,
+               cols = c("grupo", "clasificacion", "lider", "ciudad",
+                        "fecha_creacion", "area_conocimiento_1", "sum_papers"),
+               url_col = "url.x", page_len = 10)
   })
 
   # --- investigadores ---
@@ -256,11 +297,10 @@ server <- function(input, output, session) {
   })
 
   output$t_inv <- renderDT({
-    dat()$inv |>
-      select(any_of(c("integrantes", "posgrade", "clasification",
-                      "vinculacion", "grupo"))) |>
-      datatable(options = list(pageLength = 15, scrollX = TRUE),
-                rownames = FALSE)
+    link_table(dat()$inv,
+               cols = c("integrantes", "posgrade", "clasification",
+                        "vinculacion", "grupo"),
+               url_col = "url", page_len = 15)
   })
 
   output$t_prod <- renderDT({
