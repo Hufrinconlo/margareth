@@ -30,9 +30,17 @@ diagnostics/           regression tests — run these first when it breaks
 margaret.rds: [[1]] groups (8), [[2]] researchers (131), [3:n] ~38 product sheets.
 Researchers have semicolon-delimited grupo paired positionally with
 semicolon-delimited counts ("A; B" <-> "9; 0").
-articulos (364 rows) has `ano` and `SJR_Q`; most other sheets lack `ano`.
+21 of the 48 product sheets carry `ano`, including articulos (which also has
+SJR_Q) and capitulos — so the year slider does apply to more than articulos.
+The rest (libros, proyectos, trabajos_dirigidos, ...) cannot be year-filtered
+and the value boxes label themselves "todos los años" when they are not.
 Top categories: articulos 364, eventos_cientificos 252, capitulos 207,
-proyectos 143, trabajos_dirigidos 126. No softwares sheet at all.
+proyectos 143, trabajos_dirigidos 126. A softwares sheet exists but is empty,
+so it renders "n/d", not 0.
+
+`cursos` carries email addresses in its cell values. The strip at run_etl.R
+only cleans res[[1]], so the gate will ABORT a real run on this until the
+scrub is widened — see Open items.
 
 ## Gates
 Two, both abort publishing:
@@ -44,9 +52,15 @@ Two, both abort publishing:
   is not. That is exactly what happened on 2026-09-08.
 
 ## Open items
-- The `data` branch does not currently exist. Deleted by hand 2026-09-08 after
-  it published researcher emails; the next green ETL recreates it. Until then
-  the app's raw.githubusercontent reads 404 and the dashboard has no data.
+- BLOCKING the next real run: the strip at run_etl.R cleans only res[[1]], but
+  `cursos` has addresses in its cell values, so the PII gate will abort. Widen
+  the scrub to redact EMAIL_RE across every sheet before the next ETL.
+- The `data` branch holds a MANUAL republish (2026-09-11) of the 2026-09-08
+  scrape, cleaned to pass the gate — not a fresh scrape. The branch was deleted
+  by hand on 2026-09-08 after it published researcher emails. Minciencias has
+  been unreachable since 2026-09-10; the next green ETL replaces this.
+- Researcher CvLAC urls in res[[2]] are published deliberately, not an
+  oversight. Decided 2026-09-11: they are useful and already public.
 - Deploy to shinyapps.io (app exists: hugorl/margaret, appId 17878520).
   Deploy from a container on the pinned snapshot, never a bare machine —
   rsconnect records whatever package versions the deploying host happens to

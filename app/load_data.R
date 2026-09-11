@@ -7,7 +7,12 @@
 
 library(dplyr)
 
-DATA_BASE <- "https://raw.githubusercontent.com/Hufrinconlo/margareth/data/"
+# Override with a local directory (trailing slash) to run against artifacts on
+# disk -- demos while the branch is down, and testing without the network.
+DATA_BASE <- Sys.getenv(
+  "MARGARET_DATA_BASE",
+  "https://raw.githubusercontent.com/Hufrinconlo/margareth/data/"
+)
 
 # Download once per session into a temp file, then read.
 #
@@ -16,9 +21,18 @@ DATA_BASE <- "https://raw.githubusercontent.com/Hufrinconlo/margareth/data/"
 # message the dashboard can show instead, so a missing file degrades to a
 # notice rather than taking every panel down with a raw R error.
 fetch_artifact <- function(file, reader) {
+  loc <- paste0(DATA_BASE, file)
+
+  if (!grepl("^[A-Za-z][A-Za-z0-9+.-]*://", loc)) {
+    if (!file.exists(loc) || file.size(loc) == 0) {
+      stop("No hay datos en ", loc, ".", call. = FALSE)
+    }
+    return(reader(loc))
+  }
+
   dest <- tempfile(fileext = paste0("_", file))
   ok <- tryCatch({
-    utils::download.file(paste0(DATA_BASE, file), dest, mode = "wb", quiet = TRUE)
+    utils::download.file(loc, dest, mode = "wb", quiet = TRUE)
     TRUE
   }, error = function(e) FALSE, warning = function(w) FALSE)
 
