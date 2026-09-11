@@ -70,7 +70,19 @@ res <- margaret::getting_data(as.data.frame(groups))
 # and a consolidated dataset is a different thing from 8 separate pages.
 # The gate below checks this same list, so keep it as the one definition.
 PII_COLS <- c("email", "url.y")
+EMAIL_RE <- "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"
 res[[1]] <- res[[1]] |> dplyr::select(-dplyr::any_of(PII_COLS))
+
+# Dropping columns cannot reach an address sitting inside a free-text cell,
+# and `cursos` carries several. Without this the gate below correctly refuses
+# to publish and the whole run aborts, so redact across every sheet.
+res <- lapply(res, function(d) {
+  if (!is.data.frame(d)) return(d)
+  for (j in seq_along(d)) {
+    if (is.character(d[[j]])) d[[j]] <- gsub(EMAIL_RE, "[correo removido]", d[[j]])
+  }
+  d
+})
 
 # getting_data() already wrote margaret.xlsx with the email column in it,
 # so overwrite it with the cleaned version.
@@ -118,8 +130,7 @@ if (rate > THRESHOLD) {
 #
 # Cell values are checked as well as column names: an upstream rename, or an
 # address sitting in a free-text field, would otherwise sail straight through.
-EMAIL_RE <- "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"
-
+# PII_COLS and EMAIL_RE are the same ones the scrub above uses.
 pii_reasons <- function(df) {
   nms <- names(df)
   bad <- nms[tolower(nms) %in% tolower(PII_COLS) |

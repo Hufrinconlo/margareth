@@ -1,0 +1,34 @@
+# Image for running and DEPLOYING the Shiny app. The ETL image (Dockerfile)
+# does not carry shiny/rsconnect, and this one does not carry margaret.
+#
+#   docker build -f Dockerfile.deploy -t margaret-deploy:latest .
+#
+# Why deploys go through a container at all: rsconnect records the package
+# versions of whatever machine runs deployApp() and tells shinyapps.io to
+# install those. Deploying from a bare machine would therefore hand the server
+# whatever happened to be installed there -- exactly the version drift the
+# base-image and CRAN-snapshot pins exist to prevent. Same 4.5.3 base and same
+# 2026-04-23 snapshot as the ETL, so both halves agree.
+#
+# Run the app locally against the published data branch:
+#   docker run -d --name margaret-local -p 8127:8127 -v "$PWD":/work \
+#     margaret-deploy:latest R -q -e 'shiny::runApp("/work/app", port=8127, host="0.0.0.0")'
+#
+# Point it at artifacts on disk instead (branch down, or offline):
+#   -e MARGARET_DATA_BASE=/work/output/demo/
+
+FROM rocker/r-ver:4.5.3
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libxml2 libicu74 libpng16-16 \
+      libfontconfig1 libfreetype6 libharfbuzz0b libfribidi0 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN install2.r --error --skipinstalled \
+    shiny shinydashboard dplyr tidyr tibble plotly DT rsconnect
+
+# Hard gate — fails the build rather than producing an image that dies at runtime
+RUN R -q -e 'for (p in c("shiny","shinydashboard","plotly","DT","rsconnect")) \
+      library(p, character.only = TRUE); cat("deploy image OK\n")'
+
+WORKDIR /work

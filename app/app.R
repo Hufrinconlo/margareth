@@ -56,9 +56,11 @@ link_table <- function(df, cols, url_col, page_len) {
 
   datatable(
     d,
-    rownames = FALSE,
-    colnames = pretty_names(names(d)),
-    escape   = -(uidx + 1L),
+    rownames  = FALSE,
+    colnames  = pretty_names(names(d)),
+    escape    = -(uidx + 1L),
+    selection = "none",        # rows are links; a sticky highlight means nothing
+
     options  = list(
       pageLength = page_len, scrollX = TRUE,
       columnDefs = list(list(visible = FALSE, targets = uidx))

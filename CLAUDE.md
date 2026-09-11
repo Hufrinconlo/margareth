@@ -21,6 +21,8 @@ Minciencias — GrupLAC's HTML has been stable since 2022.
 ## Layout
 etl/run_etl.R          scrape + httr::GET retry shim + health gate
 etl/patch_margaret.R   the two patches
+Dockerfile             ETL image (margaret, tidyverse)
+Dockerfile.deploy      app + rsconnect image; run the app locally, and deploy
 app/app.R              shinydashboard + plotly
 app/load_data.R        reads raw.githubusercontent .../data/
 diagnostics/           regression tests — run these first when it breaks
@@ -38,9 +40,10 @@ Top categories: articulos 364, eventos_cientificos 252, capitulos 207,
 proyectos 143, trabajos_dirigidos 126. A softwares sheet exists but is empty,
 so it renders "n/d", not 0.
 
-`cursos` carries email addresses in its cell values. The strip at run_etl.R
-only cleans res[[1]], so the gate will ABORT a real run on this until the
-scrub is widened — see Open items.
+`cursos` carries email addresses in its cell values, which dropping columns
+cannot reach. run_etl.R redacts EMAIL_RE across every sheet before the gate
+for exactly this reason — without it a good scrape aborts instead of
+publishing.
 
 ## Gates
 Two, both abort publishing:
@@ -52,9 +55,6 @@ Two, both abort publishing:
   is not. That is exactly what happened on 2026-09-08.
 
 ## Open items
-- BLOCKING the next real run: the strip at run_etl.R cleans only res[[1]], but
-  `cursos` has addresses in its cell values, so the PII gate will abort. Widen
-  the scrub to redact EMAIL_RE across every sheet before the next ETL.
 - The `data` branch holds a MANUAL republish (2026-09-11) of the 2026-09-08
   scrape, cleaned to pass the gate — not a fresh scrape. The branch was deleted
   by hand on 2026-09-08 after it published researcher emails. Minciencias has
