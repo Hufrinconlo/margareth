@@ -361,24 +361,44 @@ server <- function(input, output, session) {
     product_summary(dat()$prod)$tipo[i]
   })
 
+  # The year slider sits in the sidebar on every tab, so this view honours it
+  # like the value boxes do -- otherwise clicking a box reading 149 lands on a
+  # table of 253. Filtered once here and shared, so the caption cannot drift
+  # from the rows on screen.
+  sheet_data <- reactive({
+    s <- sel_sheet(); req(s)
+    d <- dat()$prod[[s]]
+    y <- sheet_years(d)
+    if (is.null(y)) return(list(d = d, total = nrow(d), filtered = FALSE))
+    keep <- !is.na(y) & y >= yr()[1] & y <= yr()[2]
+    list(d = d[keep, , drop = FALSE], total = nrow(d), filtered = TRUE)
+  })
+
   output$sheet_panel <- renderUI({
     s <- sel_sheet()
     if (is.null(s)) return(NULL)
-    d <- dat()$prod[[s]]
+    x <- sheet_data()
     box(width = 8, title = s,
         tags$p(style = "color:#777; font-size:12px; margin-bottom:8px;",
-               sprintf("%d registros, %d columnas.", nrow(d), ncol(d)),
-               if ("DOI" %in% names(d))
+               if (x$filtered)
+                 sprintf("%d de %d registros (%d-%d), %d columnas.",
+                         nrow(x$d), x$total, yr()[1], yr()[2], ncol(x$d))
+               else
+                 sprintf("%d registros (todos los años), %d columnas.",
+                         x$total, ncol(x$d)),
+               if ("DOI" %in% names(x$d))
                  sprintf(" %d tienen DOI; clic en esa fila para abrirlo.",
-                         sum(!is.na(d$DOI) & nzchar(d$DOI)))
+                         sum(!is.na(x$d$DOI) & nzchar(x$d$DOI)))
                else ""),
         DTOutput("t_sheet"))
   })
 
   output$t_sheet <- renderDT({
-    s <- sel_sheet(); req(s)
-    d <- dat()$prod[[s]]
-    validate(need(is.data.frame(d) && nrow(d) > 0, "Esta categoría no tiene registros"))
+    x <- sheet_data()
+    d <- x$d
+    validate(need(nrow(d) > 0, if (x$filtered)
+      sprintf("Ningún registro entre %d y %d. Ajuste el rango de años.", yr()[1], yr()[2])
+      else "Esta categoría no tiene registros"))
 
     # articulos carries a DOI, so its rows can open the paper. A DOI is stored
     # bare ("10.1000/xyz"), so it needs resolving to a URL first.
