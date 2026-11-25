@@ -20,18 +20,28 @@ library(DT)
 
 source("load_data.R")
 
+# Half the sheets record a date but no `ano`, which put them beyond the year
+# slider. Fall back to the start date where it actually parses -- the values
+# carry a leading space, hence the trim. Returns NULL when it does not parse
+# for most rows, so the box says "todos los años" instead of filtering on NAs.
+sheet_years <- function(s) {
+  if ("ano" %in% names(s)) return(suppressWarnings(as.numeric(s$ano)))
+  dc <- names(s)[tolower(names(s)) %in% c("fecha_inicio", "desde")]
+  if (!length(dc)) return(NULL)
+  y <- suppressWarnings(as.integer(substr(trimws(as.character(s[[dc[1]]])), 1, 4)))
+  if (sum(!is.na(y) & y > 1950 & y < 2100) < nrow(s) * 0.8) return(NULL)
+  y
+}
+
 count_sheet <- function(prod, name, yr) {
   s <- prod[[name]]
-  # An absent sheet is not the same claim as a count of zero: margaret has no
-  # softwares sheet at all, and "0 Software" reads as "produced none".
+  # An absent sheet is not the same claim as a count of zero: a 0-row sheet
+  # rendered as "0 Software" reads as "produced none".
   if (is.null(s) || !is.data.frame(s) || nrow(s) == 0)
     return(list(value = "n/d", note = "sin datos"))
-  if ("ano" %in% names(s)) {
-    a <- suppressWarnings(as.numeric(s$ano))
-    return(list(value = sum(!is.na(a) & a >= yr[1] & a <= yr[2]), note = NULL))
-  }
-  # Only articulos carries `ano`. The rest cannot honour the year slider, so
-  # say so on the box rather than showing an all-time total beside filtered ones.
+  y <- sheet_years(s)
+  if (!is.null(y))
+    return(list(value = sum(!is.na(y) & y >= yr[1] & y <= yr[2]), note = NULL))
   list(value = nrow(s), note = "todos los años")
 }
 
@@ -44,6 +54,15 @@ sheet_box <- function(prod, name, label, yr, icon_name) {
 
 pretty_names <- function(x) {
   sub("^(.)", "\\U\\1", gsub("_", " ", x), perl = TRUE)
+}
+
+# A product box that doubles as a link into its own records on the Datos tab.
+sheet_box_ui <- function(outputId, sheet, width = 4) {
+  tags$div(
+    class   = paste0("col-sm-", width, " vb-link"),
+    onclick = sprintf("Shiny.setInputValue('go_sheet', '%s', {priority:'event'});", sheet),
+    valueBoxOutput(outputId, width = 12)
+  )
 }
 
 # Rows open the underlying GrupLAC/CvLAC page. The url rides along as the last
@@ -118,14 +137,14 @@ ui <- function(req) {
                      valueBoxOutput("vb_inv", width = 12))
           ),
           fluidRow(
-            valueBoxOutput("vb_art", width = 4),
-            valueBoxOutput("vb_cap", width = 4),
-            valueBoxOutput("vb_lib", width = 4)
+            sheet_box_ui("vb_art", "articulos"),
+            sheet_box_ui("vb_cap", "capitulos"),
+            sheet_box_ui("vb_lib", "libros")
           ),
           fluidRow(
-            valueBoxOutput("vb_soft", width = 4),
-            valueBoxOutput("vb_proy", width = 4),
-            valueBoxOutput("vb_trab", width = 4)
+            sheet_box_ui("vb_even", "eventos_cientificos"),
+            sheet_box_ui("vb_proy", "proyectos"),
+            sheet_box_ui("vb_trab", "trabajos_dirigidos")
           ),
           fluidRow(
             box(plotlyOutput("p_produccion"), width = 6),
@@ -195,6 +214,15 @@ server <- function(input, output, session) {
   # The two headline boxes double as navigation into their detail tabs.
   observeEvent(input$go_tab, updateTabItems(session, "tabs", input$go_tab))
 
+  # A product box jumps to Datos and selects that category. It drives the same
+  # DT selection the row click uses, so there is one source of truth and the
+  # highlight stays correct however the panel was opened.
+  observeEvent(input$go_sheet, {
+    updateTabItems(session, "tabs", "datos")
+    i <- match(input$go_sheet, product_summary(dat()$prod)$tipo)
+    if (!is.na(i)) DT::selectRows(DT::dataTableProxy("t_prod"), i)
+  })
+
   # Slider depends on the data, so it's rendered rather than declared in UI.
   output$year_ui <- renderUI({
     yrs <- range(dat()$art$ano, na.rm = TRUE)
@@ -232,8 +260,9 @@ server <- function(input, output, session) {
     sheet_box(dat()$prod, "capitulos", "Total Capítulos", yr(), "book"))
   output$vb_lib <- renderValueBox(
     sheet_box(dat()$prod, "libros", "Total Libros", yr(), "book-open"))
-  output$vb_soft <- renderValueBox(
-    sheet_box(dat()$prod, "softwares", "Total Software", yr(), "code"))
+  output$vb_even <- renderValueBox(
+    sheet_box(dat()$prod, "eventos_cientificos", "Total Eventos", yr(),
+              "calendar-days"))
   output$vb_proy <- renderValueBox(
     sheet_box(dat()$prod, "proyectos", "Total Proyectos", yr(), "lightbulb"))
   output$vb_trab <- renderValueBox(
@@ -320,6 +349,10 @@ server <- function(input, output, session) {
       datatable(options = list(pageLength = 20), rownames = FALSE,
                 selection = list(mode = "single", selected = NA))
   })
+
+  # Outputs on a hidden tab are suspended by default, so t_prod would not exist
+  # yet when a product box fires selectRows at it. Keep it live from the start.
+  outputOptions(output, "t_prod", suspendWhenHidden = FALSE)
 
   # rows_selected indexes the underlying data, so it survives sorting and paging.
   sel_sheet <- reactive({
