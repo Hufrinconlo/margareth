@@ -69,7 +69,7 @@ sheet_box_ui <- function(outputId, sheet, width = 4) {
 # column and is hidden, so the click handler can read it out of the row data.
 # It is excluded from DT's HTML escaping: an escaped `&` would corrupt any
 # query string before window.open ever saw it.
-link_table <- function(df, cols, url_col, page_len) {
+link_table <- function(df, cols, url_col, page_len, scroll_y = NULL) {
   d <- df |> select(any_of(c(cols, url_col)))
   uidx <- ncol(d) - 1L                       # 0-based, for the JS data array
 
@@ -80,9 +80,11 @@ link_table <- function(df, cols, url_col, page_len) {
     escape    = -(uidx + 1L),
     selection = "none",        # rows are links; a sticky highlight means nothing
 
-    options  = list(
-      pageLength = page_len, scrollX = TRUE,
-      columnDefs = list(list(visible = FALSE, targets = uidx))
+    options  = c(
+      list(pageLength = page_len, scrollX = TRUE,
+           columnDefs = list(list(visible = FALSE, targets = uidx))),
+      # Caps the body height so the horizontal bar stays in view.
+      if (!is.null(scroll_y)) list(scrollY = scroll_y, scrollCollapse = TRUE)
     ),
     callback = JS(sprintf(
       "table.on('click', 'tbody tr', function() {
@@ -105,7 +107,14 @@ pie_of <- function(df, col, title) {
 ui <- function(req) {
   dashboardPage(
     skin = "blue",
-    dashboardHeader(title = "Margaret"),
+    # Set explicitly: with HTML in the header title, dashboardPage would reuse
+    # that markup for the browser <title> and the tab would show the tag itself.
+    title = "Margaret",
+    # The title doubles as a way home, reusing the go_tab observer.
+    dashboardHeader(title = tags$span(
+      "Margaret", class = "logo-home",
+      onclick = "Shiny.setInputValue('go_tab', 'general', {priority:'event'});"
+    )),
 
     dashboardSidebar(
       uiOutput("year_ui"),          # built from data, so rendered server-side
@@ -125,6 +134,20 @@ ui <- function(req) {
         #t_grupos tbody tr, #t_inv tbody tr { cursor: pointer; }
         .vb-link { cursor: pointer; }
         .vb-link:hover .small-box { filter: brightness(1.07); }
+        .logo-home { cursor: pointer; }
+        .logo-home:hover { text-decoration: underline; }
+        /* Datos: the sheets are wide, and with the scrollbar at the foot of a
+           full-height table you had to scroll the page down to reach it. The
+           body is capped instead, so the bar stays on screen -- forced to
+           'scroll' so it is drawn even where the OS hides idle scrollbars. */
+        #t_sheet .dataTables_scrollBody { overflow-x: scroll !important; }
+        #t_sheet .dataTables_scrollBody::-webkit-scrollbar { height: 12px; }
+        #t_sheet .dataTables_scrollBody::-webkit-scrollbar-track {
+          background: #f0f0f0; border-radius: 6px; }
+        #t_sheet .dataTables_scrollBody::-webkit-scrollbar-thumb {
+          background: #adadad; border-radius: 6px; }
+        #t_sheet .dataTables_scrollBody::-webkit-scrollbar-thumb:hover {
+          background: #8c8c8c; }
       "))),
       tabItems(
         tabItem("general",
@@ -405,11 +428,13 @@ server <- function(input, output, session) {
     if ("DOI" %in% names(d)) {
       d <- d |> mutate(.url = ifelse(is.na(DOI) | !nzchar(DOI), NA_character_,
                                      paste0("https://doi.org/", sub("^https?://doi\\.org/", "", DOI))))
-      link_table(d, cols = setdiff(names(d), ".url"), url_col = ".url", page_len = 15)
+      link_table(d, cols = setdiff(names(d), ".url"), url_col = ".url",
+                 page_len = 15, scroll_y = "55vh")
     } else {
       datatable(d, rownames = FALSE, colnames = pretty_names(names(d)),
                 selection = "none",
-                options = list(pageLength = 15, scrollX = TRUE))
+                options = list(pageLength = 15, scrollX = TRUE,
+                               scrollY = "55vh", scrollCollapse = TRUE))
     }
   })
 }
