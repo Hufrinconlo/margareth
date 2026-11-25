@@ -151,9 +151,12 @@ ui <- function(req) {
         tabItem("datos",
           fluidRow(
             box(title = "Productos por categoría", width = 4,
+                tags$p(style = "color:#777; font-size:12px; margin-bottom:8px;",
+                       "Clic en una categoría para ver sus registros."),
                 DTOutput("t_prod")),
-            box(width = 8, uiOutput("sheet_ui"),
-                uiOutput("sheet_note"), DTOutput("t_sheet"))
+            # Rendered server-side so there is nothing on screen until a
+            # category is picked; the box itself appears with the selection.
+            uiOutput("sheet_panel")
           )
         )
       )
@@ -309,37 +312,39 @@ server <- function(input, output, session) {
                url_col = "url", page_len = 15)
   })
 
+  # The highlight is the selection: it marks which category is on show, and
+  # clicking it again clears both the highlight and the panel.
   output$t_prod <- renderDT({
     product_summary(dat()$prod) |>
       rename(Categoría = tipo, Registros = filas) |>
-      datatable(options = list(pageLength = 20), rownames = FALSE)
+      datatable(options = list(pageLength = 20), rownames = FALSE,
+                selection = list(mode = "single", selected = NA))
   })
 
-  # --- the sheets themselves, not just their row counts ---
-  # Built server-side because the category list comes from the data: which
-  # sheets a group fills varies, and empty ones are not worth offering.
-  output$sheet_ui <- renderUI({
-    choices <- product_summary(dat()$prod)$tipo
-    selectInput("sheet", "Ver registros de:", choices = choices,
-                selected = choices[1], width = "100%")
+  # rows_selected indexes the underlying data, so it survives sorting and paging.
+  sel_sheet <- reactive({
+    i <- input$t_prod_rows_selected
+    if (!length(i)) return(NULL)
+    product_summary(dat()$prod)$tipo[i]
   })
 
-  # Most sheets have no DOI, so there is nothing to open; say so rather than
-  # leaving the row-click behaviour of the other tables silently absent here.
-  output$sheet_note <- renderUI({
-    req(input$sheet)
-    d <- dat()$prod[[input$sheet]]
-    tags$p(style = "color:#777; font-size:12px; margin-bottom:8px;",
-           sprintf("%d registros, %d columnas.", nrow(d), ncol(d)),
-           if ("DOI" %in% names(d))
-             sprintf(" %d tienen DOI; clic en esa fila para abrirlo.",
-                     sum(!is.na(d$DOI) & nzchar(d$DOI)))
-           else "")
+  output$sheet_panel <- renderUI({
+    s <- sel_sheet()
+    if (is.null(s)) return(NULL)
+    d <- dat()$prod[[s]]
+    box(width = 8, title = s,
+        tags$p(style = "color:#777; font-size:12px; margin-bottom:8px;",
+               sprintf("%d registros, %d columnas.", nrow(d), ncol(d)),
+               if ("DOI" %in% names(d))
+                 sprintf(" %d tienen DOI; clic en esa fila para abrirlo.",
+                         sum(!is.na(d$DOI) & nzchar(d$DOI)))
+               else ""),
+        DTOutput("t_sheet"))
   })
 
   output$t_sheet <- renderDT({
-    req(input$sheet)
-    d <- dat()$prod[[input$sheet]]
+    s <- sel_sheet(); req(s)
+    d <- dat()$prod[[s]]
     validate(need(is.data.frame(d) && nrow(d) > 0, "Esta categoría no tiene registros"))
 
     # articulos carries a DOI, so its rows can open the paper. A DOI is stored
