@@ -20,17 +20,36 @@ library(DT)
 
 source("load_data.R")
 
-# Half the sheets record a date but no `ano`, which put them beyond the year
-# slider. Fall back to the start date where it actually parses -- the values
-# carry a leading space, hence the trim. Returns NULL when it does not parse
-# for most rows, so the box says "todos los años" instead of filtering on NAs.
+YEAR_MIN <- 1950L
+YEAR_MAX <- 2100L
+
+# Sheets disagree on how they record a year: `ano`, `Ano`, or only a start date
+# ("fecha_inicio"/"desde"), whose values carry a leading space. Candidates are
+# tried in order and the first that parses for most rows wins, so a column that
+# holds something else entirely -- regulaciones_normas$ano is "Colombia" -- does
+# not win and filter every row away. NULL means the sheet has no usable year, so
+# callers show everything and say "todos los años" rather than filtering on NAs.
 sheet_years <- function(s) {
-  if ("ano" %in% names(s)) return(suppressWarnings(as.numeric(s$ano)))
-  dc <- names(s)[tolower(names(s)) %in% c("fecha_inicio", "desde")]
-  if (!length(dc)) return(NULL)
-  y <- suppressWarnings(as.integer(substr(trimws(as.character(s[[dc[1]]])), 1, 4)))
-  if (sum(!is.na(y) & y > 1950 & y < 2100) < nrow(s) * 0.8) return(NULL)
-  y
+  nm <- names(s)
+  for (cl in c(nm[tolower(nm) == "ano"],
+               nm[tolower(nm) %in% c("fecha_inicio", "desde")])) {
+    y <- suppressWarnings(as.integer(substr(trimws(as.character(s[[cl]])), 1, 4)))
+    ok <- !is.na(y) & y > YEAR_MIN & y < YEAR_MAX
+    if (sum(ok) >= nrow(s) * 0.8) return(ifelse(ok, y, NA_integer_))
+  }
+  NULL
+}
+
+# A DOI is stored bare ("10.1000/xyz"), but the column also holds resolver URLs,
+# "DOI:" labels and non-values like "No aplica". Anything that is not a DOI after
+# cleaning returns NA, so the row simply does not open and the caption's count
+# matches what is actually clickable.
+doi_url <- function(x) {
+  v <- trimws(as.character(x))
+  v <- sub("^doi\\s*:\\s*", "", v, perl = TRUE, ignore.case = TRUE)
+  v <- trimws(sub("^https?://(dx\\.)?doi\\.org/", "", v, perl = TRUE,
+                  ignore.case = TRUE))
+  ifelse(grepl("^10\\.\\S+/\\S+", v), paste0("https://doi.org/", v), NA_character_)
 }
 
 count_sheet <- function(prod, name, yr) {
@@ -220,9 +239,12 @@ server <- function(input, output, session) {
     d <- loaded$d
     prod <- lapply(d$products, function(x) if (is.data.frame(x)) ungroup(x) else x)
 
+    # One sanity bound, shared with sheet_years(). The old 1990 floor dropped
+    # three real 1985-86 articulos from the charts while the Datos tab still
+    # counted them, so the denominator named rows no slider position could show.
     art <- prod$articulos |>
       mutate(ano = suppressWarnings(as.numeric(ano))) |>
-      filter(!is.na(ano), ano >= 1990,
+      filter(!is.na(ano), ano > YEAR_MIN,
              ano <= as.numeric(format(Sys.Date(), "%Y")))
 
     list(
@@ -242,13 +264,21 @@ server <- function(input, output, session) {
   # highlight stays correct however the panel was opened.
   observeEvent(input$go_sheet, {
     updateTabItems(session, "tabs", "datos")
+    # product_summary() lists only sheets with rows, so an emptied one yields
+    # NA. Clear the selection then, or the previous category's panel stays up
+    # as though it were the one just asked for.
     i <- match(input$go_sheet, product_summary(dat()$prod)$tipo)
-    if (!is.na(i)) DT::selectRows(DT::dataTableProxy("t_prod"), i)
+    DT::selectRows(DT::dataTableProxy("t_prod"), if (is.na(i)) integer(0) else i)
   })
 
   # Slider depends on the data, so it's rendered rather than declared in UI.
   output$year_ui <- renderUI({
-    yrs <- range(dat()$art$ano, na.rm = TRUE)
+    # Spans every sheet that has a usable year, not just articulos: the slider
+    # governs the whole app, so a position it cannot reach hides real rows.
+    ys <- unlist(lapply(dat()$prod, function(p) {
+      if (is.data.frame(p) && nrow(p)) sheet_years(p) else NULL
+    }), use.names = FALSE)
+    yrs <- range(c(ys, dat()$art$ano), na.rm = TRUE)
     sliderInput("years", "Años:", min = yrs[1], max = yrs[2],
                 value = c(max(yrs[1], yrs[2] - 10), yrs[2]),
                 step = 1, sep = "")
@@ -391,10 +421,14 @@ server <- function(input, output, session) {
   sheet_data <- reactive({
     s <- sel_sheet(); req(s)
     d <- dat()$prod[[s]]
+    total <- nrow(d)
     y <- sheet_years(d)
-    if (is.null(y)) return(list(d = d, total = nrow(d), filtered = FALSE))
-    keep <- !is.na(y) & y >= yr()[1] & y <= yr()[2]
-    list(d = d[keep, , drop = FALSE], total = nrow(d), filtered = TRUE)
+    filtered <- !is.null(y)
+    if (filtered) {
+      d <- d[!is.na(y) & y >= yr()[1] & y <= yr()[2], , drop = FALSE]
+    }
+    list(d = d, total = total, filtered = filtered,
+         url = if ("DOI" %in% names(d)) doi_url(d$DOI) else NULL)
   })
 
   output$sheet_panel <- renderUI({
@@ -409,9 +443,9 @@ server <- function(input, output, session) {
                else
                  sprintf("%d registros (todos los años), %d columnas.",
                          x$total, ncol(x$d)),
-               if ("DOI" %in% names(x$d))
+               if (!is.null(x$url))
                  sprintf(" %d tienen DOI; clic en esa fila para abrirlo.",
-                         sum(!is.na(x$d$DOI) & nzchar(x$d$DOI)))
+                         sum(!is.na(x$url)))
                else ""),
         DTOutput("t_sheet"))
   })
@@ -423,11 +457,8 @@ server <- function(input, output, session) {
       sprintf("Ningún registro entre %d y %d. Ajuste el rango de años.", yr()[1], yr()[2])
       else "Esta categoría no tiene registros"))
 
-    # articulos carries a DOI, so its rows can open the paper. A DOI is stored
-    # bare ("10.1000/xyz"), so it needs resolving to a URL first.
-    if ("DOI" %in% names(d)) {
-      d <- d |> mutate(.url = ifelse(is.na(DOI) | !nzchar(DOI), NA_character_,
-                                     paste0("https://doi.org/", sub("^https?://doi\\.org/", "", DOI))))
+    if (!is.null(x$url)) {
+      d$.url <- x$url
       link_table(d, cols = setdiff(names(d), ".url"), url_col = ".url",
                  page_len = 15, scroll_y = "55vh")
     } else {
